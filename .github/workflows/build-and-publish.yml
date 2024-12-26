@@ -1,0 +1,110 @@
+name: Build and Publish
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+#        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: [3.11]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        if [[ "${{ runner.os }}" == "Linux" ]] || [[ "${{ runner.os }}" == "macOS" ]]; then
+          python -m pip install --upgrade pip setuptools wheel
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            sudo apt-get update && sudo apt-get install -y cmake g++ libxmu-dev libxi-dev libgl-dev linux-libc-dev
+          fi
+        fi
+
+    - name: Setup Vcpkg
+      shell: bash
+      run: |
+        if [[ "${{ runner.os }}" == "Linux" ]] || [[ "${{ runner.os }}" == "macOS" ]]; then
+          if [ -d "./vcpkg" ]; then rm -rf ./vcpkg; fi
+          git clone https://github.com/microsoft/vcpkg.git
+          ./vcpkg/bootstrap-vcpkg.sh
+          echo "VCPKG_TOOLCHAIN_FILE=${PWD}/vcpkg/scripts/buildsystems/vcpkg.cmake" >> $GITHUB_ENV
+        elif [[ "${{ runner.os }}" == "Windows" ]]; then
+          git clone https://github.com/microsoft/vcpkg.git C:\\vcpkg_tmp
+          cd C:\\vcpkg_tmp && bootstrap-vcpkg.bat
+          echo "VCPKG_TOOLCHAIN_FILE=C:\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake" >> $GITHUB_ENV
+        fi
+
+    - name: Install PCL with VTK using Vcpkg
+      shell: bash
+      run: |
+        if [[ "${{ runner.os }}" == "Linux" ]]; then
+          ./vcpkg/vcpkg update
+          ./vcpkg/vcpkg install pcl[vtk]:x64-linux
+        elif [[ "${{ runner.os }}" == "macOS" ]]; then
+          ./vcpkg/vcpkg update
+          ./vcpkg/vcpkg install pcl[vtk]:x64-osx
+        elif [[ "${{ runner.os }}" == "Windows" ]]; then
+          C:\\vcpkg\\vcpkg.exe install pcl[vtk]:x64-windows
+        fi
+
+    - name: Build the package
+      env:
+        VCPKG_TOOLCHAIN_FILE: ${{ env.VCPKG_TOOLCHAIN_FILE }}
+      shell: bash
+      run: |
+        pip install .
+      continue-on-error: true
+
+    - name: Upload Configuration Log
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: configuration-logs
+        path: |
+          ./vcpkg/buildtrees/vtk/config-x64-linux-dbg-CMakeCache.txt.log
+          ./vcpkg/buildtrees/vtk/config-x64-linux-dbg-CMakeFiles/*.log
+
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip setuptools wheel twine
+
+    - name: Build and publish package
+      env:
+        TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
+        TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+      run: |
+        python setup.py sdist bdist_wheel
+        twine upload dist/*

@@ -1,0 +1,8 @@
+build/
+cmake-build-debug/
+pybind11
+grasp_pose_generator.egg-info/
+*.so
+__pycache__/
+.vscode/
+.idea/
