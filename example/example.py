@@ -13,9 +13,9 @@ grasps = gpg.generate_grasps(points, num_samples, show_grasp, gripper_config_fil
 
 pose_list = []
 for grasp in grasps:
-    pose = np.eye(4)
-    pose[:3, 0] = grasp.get_grasp_approach()
-    pose[:3, 1] = grasp.get_grasp_binormal()
-    pose[:3, 2] = grasp.get_grasp_axis()
-    pose[:3, 3] = grasp.get_grasp_bottom()
-    pose_list.append(pose)
+    position = grasp.get_grasp_bottom()
+    axis = grasp.get_grasp_axis()
+    binormal = grasp.get_grasp_binormal()
+    approach = grasp.get_grasp_approach()
+    orientation = np.column_stack((axis, binormal, approach))
+    pose_list.append((position, orientation))
