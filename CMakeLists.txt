@@ -3,8 +3,8 @@ project(grasp_pose_generator)
 set(CMAKE_BUILD_TYPE Release)
 
 find_package(OpenMP REQUIRED)
-set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 include_directories(${EIGEN3_INCLUDE_DIR})
@@ -15,7 +15,6 @@ find_package(Boost COMPONENTS thread REQUIRED)
 include_directories(${Boost_INCLUDE_DIRS})
 link_directories(${Boost_LIBRARY_DIRS})
 
-set(PYBIND11_PYTHON_VERSION 3.11)
 add_subdirectory(dependencies/pybind11)
 
 file(GLOB GPG_SRC

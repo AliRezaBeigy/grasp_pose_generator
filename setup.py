@@ -36,9 +36,9 @@ class CMakeBuild(build_ext):
             raise RuntimeError("The VCPKG_TOOLCHAIN_FILE environment variable is not set.")
 
         cmake_args = [
-            "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE={}".format(extdir),
-            "-DCMAKE_BUILD_TYPE={}".format("Release"),
-            "-DCMAKE_TOOLCHAIN_FILE={}".format(vcpkg_toolchain),
+            f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE={extdir}",
+            "-DCMAKE_BUILD_TYPE=Release",
+            f"-DCMAKE_TOOLCHAIN_FILE={vcpkg_toolchain}",
             f"-DPYTHON_EXECUTABLE={sys.executable}"
         ]
 
@@ -65,14 +65,14 @@ class CMakeBuild(build_ext):
 setup(
     name="grasp_pose_generator",
     author="AliReza Beigy",
-    version="1.0.0",
+    version="1.0.1",
     license="MIT",
-    python_requires="~=3.11",
+    python_requires=">=3.6",
     platforms=["nt", "posix"],
     packages=setuptools.find_packages(),
     long_description_content_type="text/markdown",
     long_description=long_description,
-    author_email="AliRezaBeigyKhu@gmail.com",
+    author_email="alireza.beigy.rb@gmail.com",
     description="A binding of gpg using pybind11 and CMake",
     ext_modules=[CMakeExtension("grasp_pose_generator")],
     cmdclass={"build_ext": CMakeBuild},

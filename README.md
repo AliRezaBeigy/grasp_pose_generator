@@ -16,10 +16,6 @@ To install the `grasp_pose-generator` package, use pip:
 pip install grasp-pose-generator
 ```
 
-## Build
-
-To build the `grasp-pose-generator` package from source, follow these steps:
-
 ### Steps
 
 1. Install [Vcpkg](https://github.com/microsoft/vcpkg) and configure it on your system.
@@ -79,6 +75,53 @@ python example/example.py
 ```
 
 Press `R` during the visualization to see the generated grasp poses.
+
+## Build
+
+To build the `grasp-pose-generator` package from source, follow these steps:
+
+### Prerequisites
+- Python 3.6 or later
+- [Vcpkg](https://github.com/microsoft/vcpkg) installed and configured
+- CMake 3.20 or later
+- A C++ compiler (e.g., MSVC for Windows)
+- Dependencies: Eigen3, PCL (with VTK), Boost (installed via Vcpkg)
+
+### Steps
+
+1. Install [Vcpkg](https://github.com/microsoft/vcpkg) and configure it on your system. For Windows, use the `x64-windows` triplet to install dependencies:
+   ```bash
+   vcpkg install eigen3:x64-windows pcl[vtk]:x64-windows boost-thread:x64-windows
+   ```
+   Set the `VCPKG_TOOLCHAIN_FILE` environment variable:
+   ```bash
+   set VCPKG_TOOLCHAIN_FILE=C:\path\to\vcpkg\scripts\buildsystems\vcpkg.cmake
+   ```
+
+2. Clone the [Pybind11](https://github.com/pybind/pybind11) repository into a `dependencies` directory in your project root:
+   ```bash
+   mkdir dependencies
+   cd dependencies
+   git clone https://github.com/pybind/pybind11.git
+   cd ..
+   ```
+
+3. Install build tools:
+   ```bash
+   pip install build
+   ```
+
+4. Build the package:
+   ```bash
+   python -m build
+   ```
+
+5. Install the package locally to test:
+   ```bash
+   pip install dist\*
+   ```
+
+This process will compile the C++ code using Vcpkg dependencies and Pybind11 bindings, generating a wheel compatible with your Python version.
 
 ## License
 
