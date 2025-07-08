@@ -1,0 +1,16 @@
+{
+  "name": "grasp-pose-generator",
+  "version": "1.0.0",
+  "description": "A Python package for generating grasp poses using Point Cloud Library",
+  "dependencies": [
+    {
+      "name": "pcl",
+      "features": [
+        "vtk"
+      ]
+    },
+    "boost",
+    "eigen3"
+  ],
+  "builtin-baseline": "c6f09fc73ebfbfddd769f8fac9f33f95304c77e5"
+}

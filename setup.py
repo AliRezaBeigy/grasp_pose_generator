@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import setuptools
+import shlex
 
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
@@ -30,28 +31,60 @@ class CMakeBuild(build_ext):
         if not extdir.endswith(os.path.sep):
             extdir += os.path.sep
 
-        # Get the Vcpkg toolchain path from an environment variable
-        vcpkg_toolchain = os.environ.get("VCPKG_TOOLCHAIN_FILE")
-        if not vcpkg_toolchain:
-            raise RuntimeError("The VCPKG_TOOLCHAIN_FILE environment variable is not set.")
-
         cmake_args = [
             f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE={extdir}",
             "-DCMAKE_BUILD_TYPE=Release",
-            f"-DCMAKE_TOOLCHAIN_FILE={vcpkg_toolchain}",
             f"-DPYTHON_EXECUTABLE={sys.executable}"
         ]
 
+        # Parse CMAKE_ARGS environment variable if it exists
+        cmake_args_env = os.environ.get("CMAKE_ARGS")
+        if cmake_args_env:
+            # Parse the CMAKE_ARGS string and add to cmake_args
+            parsed_args = shlex.split(cmake_args_env)
+            cmake_args.extend(parsed_args)
+            print(f"Added CMAKE_ARGS from environment: {parsed_args}")
+
+        # Check for Conan toolchain file (alternative to vcpkg)
+        conan_toolchain = os.path.join(self.build_temp, "conan_toolchain.cmake")
+        if os.path.exists(conan_toolchain):
+            cmake_args.append(f"-DCMAKE_TOOLCHAIN_FILE={conan_toolchain}")
+            print(f"Using Conan toolchain: {conan_toolchain}")
+        else:
+            # Check for system-wide toolchain file
+            cmake_toolchain = os.environ.get("CMAKE_TOOLCHAIN_FILE")
+            if cmake_toolchain:
+                cmake_args.append(f"-DCMAKE_TOOLCHAIN_FILE={cmake_toolchain}")
+                print(f"Using CMAKE_TOOLCHAIN_FILE: {cmake_toolchain}")
+
         # Add platform-specific arguments
-        if self.plat_name in PLAT_TO_CMAKE:
-            cmake_args += ["-A", PLAT_TO_CMAKE[self.plat_name]]
+        if sys.platform.startswith("win"):
+            # Windows-specific arguments
+            if self.plat_name in PLAT_TO_CMAKE:
+                cmake_args += ["-A", PLAT_TO_CMAKE[self.plat_name]]
         elif sys.platform.startswith("linux"):
+            # Linux-specific arguments
             cmake_args += ["-DCMAKE_SYSTEM_NAME=Linux"]
+            # Set architecture if needed
+            if self.plat_name == "linux-x86_64":
+                cmake_args += ["-DCMAKE_SYSTEM_PROCESSOR=x86_64"]
+            elif self.plat_name == "linux-aarch64":
+                cmake_args += ["-DCMAKE_SYSTEM_PROCESSOR=aarch64"]
         else:
             raise RuntimeError(f"Unsupported platform: {self.plat_name}")
 
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
+
+        # Copy conan_toolchain.cmake to build directory if it exists in source
+        source_conan_toolchain = os.path.join(ext.sourcedir, "conan_toolchain.cmake")
+        if os.path.exists(source_conan_toolchain):
+            import shutil
+            shutil.copy2(source_conan_toolchain, conan_toolchain)
+            print(f"Copied Conan toolchain to build directory")
+
+        # Debug: Print all CMake arguments
+        print(f"CMake arguments: {cmake_args}")
 
         # Run CMake commands
         subprocess.check_call([
@@ -59,15 +92,15 @@ class CMakeBuild(build_ext):
         ] + cmake_args, cwd=self.build_temp)
 
         subprocess.check_call([
-            "cmake", "--build", ".", "--config", "Release"
+            "cmake", "--build", ".", "--config", "Release", "--parallel", str(os.cpu_count() or 2)
         ], cwd=self.build_temp)
 
 setup(
     name="grasp_pose_generator",
     author="AliReza Beigy",
-    version="1.0.1",
+    version="1.1.0",
     license="MIT",
-    python_requires=">=3.6",
+    python_requires=">=3.9",
     platforms=["nt", "posix"],
     packages=setuptools.find_packages(),
     long_description_content_type="text/markdown",

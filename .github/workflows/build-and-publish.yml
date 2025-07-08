@@ -1,110 +1,166 @@
 name: Build and Publish
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build and Test on ${{ matrix.os }}
+    name: Build wheel for ${{ matrix.os }} and Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
 
     strategy:
       matrix:
-        os: [ubuntu-latest]
-#        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: [3.11]
+        #        os: [ubuntu-latest, windows-latest, macos-latest]
+        #        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        os: [ windows-latest ]
+        python-version: [ "3.12" ]
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4.2.2
+      - name: Checkout code
+        uses: actions/checkout@v4.2.2
 
-    - name: Setup Python
-      uses: actions/setup-python@v5.6.0
-      with:
-        python-version: ${{ matrix.python-version }}
+      - name: Clone pybind11
+        shell: bash
+        run: |
+          mkdir -p dependencies
+          cd dependencies
+          git clone https://github.com/pybind/pybind11.git
+          cd ..
 
-    - name: Install dependencies
-      shell: bash
-      run: |
-        if [[ "${{ runner.os }}" == "Linux" ]] || [[ "${{ runner.os }}" == "macOS" ]]; then
-          python -m pip install --upgrade pip setuptools wheel
-          if [[ "${{ runner.os }}" == "Linux" ]]; then
-            sudo apt-get update && sudo apt-get install -y cmake g++ libxmu-dev libxi-dev libgl-dev linux-libc-dev
+      - name: Set up Python
+        uses: actions/setup-python@v5.6.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip setuptools wheel twine build cmake numpy
+
+      - name: Cache vcpkg dependencies
+        uses: actions/cache@v4.3.2
+        with:
+          path: ${{ github.workspace }}/vcpkg/installed
+          key: vcpkg-cache-${{ matrix.os }}-${{ matrix.python-version }}-${{ hashFiles('vcpkg.json') }}-c6f09fc73ebfbfddd769f8fac9f33f95304c77e5
+          restore-keys: |
+            vcpkg-cache-${{ matrix.os }}-${{ matrix.python-version }}-
+
+      - name: Install dependencies (Windows and macOS)
+        if: matrix.os != 'ubuntu-latest'
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 'c6f09fc73ebfbfddd769f8fac9f33f95304c77e5'
+          runVcpkgInstall: true
+
+      - name: Set vcpkg toolchain file
+        if: matrix.os != 'ubuntu-latest'
+        run: |
+          echo "VCPKG_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" >> $GITHUB_ENV
+        shell: bash
+
+      - name: Debug vcpkg installation
+        if: matrix.os != 'ubuntu-latest'
+        run: |
+          echo "Checking vcpkg installation..."
+          ls -la ${{ github.workspace }}/vcpkg/installed/
+          if [ -d "${{ github.workspace }}/vcpkg/installed/x64-windows" ]; then
+            echo "Contents of x64-windows:"
+            ls -la ${{ github.workspace }}/vcpkg/installed/x64-windows/
+            echo "Looking for PCL config files:"
+            find ${{ github.workspace }}/vcpkg/installed/x64-windows/ -name "*PCL*" -o -name "*pcl*" | head -20
           fi
-        fi
+        shell: bash
 
-    - name: Setup Vcpkg
-      shell: bash
-      run: |
-        if [[ "${{ runner.os }}" == "Linux" ]] || [[ "${{ runner.os }}" == "macOS" ]]; then
-          if [ -d "./vcpkg" ]; then rm -rf ./vcpkg; fi
-          git clone https://github.com/microsoft/vcpkg.git
-          ./vcpkg/bootstrap-vcpkg.sh
-          echo "VCPKG_TOOLCHAIN_FILE=${PWD}/vcpkg/scripts/buildsystems/vcpkg.cmake" >> $GITHUB_ENV
-        elif [[ "${{ runner.os }}" == "Windows" ]]; then
-          git clone https://github.com/microsoft/vcpkg.git C:\\vcpkg_tmp
-          cd C:\\vcpkg_tmp && bootstrap-vcpkg.bat
-          echo "VCPKG_TOOLCHAIN_FILE=C:\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake" >> $GITHUB_ENV
-        fi
+      - name: Build wheel (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          case "${{ matrix.python-version }}" in
+            "3.9")
+              PYTHON_TAG="cp39-cp39"
+              ;;
+            "3.10")
+              PYTHON_TAG="cp310-cp310"
+              ;;
+            "3.11")
+              PYTHON_TAG="cp311-cp311"
+              ;;
+            "3.12")
+              PYTHON_TAG="cp312-cp312"
+              ;;
+          esac
+          docker run --rm -v $(pwd):/io -w /io quay.io/pypa/manylinux_2_34_x86_64 bash -c "
+            yum install -y epel-release && \
+            yum install -y cmake gcc-c++ ninja-build pkgconfig \
+              python3-devel \
+              libXmu-devel libXi-devel mesa-libGL-devel glibc-devel \
+              libX11-devel libXext-devel libXtst-devel libXrandr-devel \
+              libXScrnSaver-devel gtk3-devel \
+              mesa-libGLU-devel libXrender-devel libXfixes-devel \
+              mesa-libEGL-devel mesa-libGLES-devel \
+              autoconf libtool \
+              boost-devel eigen3-devel \
+              flann-devel vtk-devel pcl-devel \
+              libXinerama-devel libXcursor-devel && \
+            /opt/python/\${PYTHON_TAG}/bin/pip install --upgrade pip setuptools wheel twine build cmake numpy && \
+            PYTHON_VERSION_SHORT=\$(echo '${{ matrix.python-version }}' | sed 's/\.//') && \
+            PYTHON_INCLUDE_PATH='/opt/python/\${PYTHON_TAG}/include/python${{ matrix.python-version }}' && \
+            [ ! -d \"\$PYTHON_INCLUDE_PATH\" ] && PYTHON_INCLUDE_PATH=\"/opt/python/\${PYTHON_TAG}/include/python\${PYTHON_VERSION_SHORT}\" || true && \
+            [ ! -d \"\$PYTHON_INCLUDE_PATH\" ] && PYTHON_INCLUDE_PATH=\$(find /opt/python/\${PYTHON_TAG}/include -name 'python*' -type d | head -1) || true && \
+            PYTHON_LIB_PATH=\$(find /opt/python/\${PYTHON_TAG}/lib -name 'libpython*.so*' 2>/dev/null | head -1) || true && \
+            [ -z \"\$PYTHON_LIB_PATH\" ] && PYTHON_LIB_PATH=\$(find /opt/python/\${PYTHON_TAG}/lib -name 'libpython*.a' 2>/dev/null | head -1) || true && \
+            [ -z \"\$PYTHON_LIB_PATH\" ] && PYTHON_LIB_PATH=\$(find /opt/python/\${PYTHON_TAG}/lib/python${{ matrix.python-version }}/config-* -name 'libpython*.so*' 2>/dev/null | head -1) || true && \
+            [ -z \"\$PYTHON_LIB_PATH\" ] && PYTHON_LIB_PATH=\$(find /opt/python/\${PYTHON_TAG}/lib/python${{ matrix.python-version }}/config-* -name 'libpython*.a' 2>/dev/null | head -1) || true && \
+            [ -z \"\$PYTHON_LIB_PATH\" ] && PYTHON_LIB_PATH=\"\" || true && \
+            export PYTHON_EXECUTABLE=/opt/python/\${PYTHON_TAG}/bin/python && \
+            export PYTHON_INCLUDE_DIR=\"\$PYTHON_INCLUDE_PATH\" && \
+            export PYTHON_LIBRARY=\"\$PYTHON_LIB_PATH\" && \
+            export Python3_INCLUDE_DIRS=\"\$PYTHON_INCLUDE_PATH\" && \
+            export Python3_LIBRARIES=\"\$PYTHON_LIB_PATH\" && \
+            export Python3_EXECUTABLE=/opt/python/\${PYTHON_TAG}/bin/python && \
+            CMAKE_ARGS=\"-DPython3_EXECUTABLE=\$Python3_EXECUTABLE -DPython3_INCLUDE_DIRS=\$Python3_INCLUDE_DIRS -DPython3_LIBRARIES=\$Python3_LIBRARIES -DPYTHON_EXECUTABLE=\$PYTHON_EXECUTABLE -DPYTHON_INCLUDE_DIR=\$PYTHON_INCLUDE_DIR -DPYTHON_LIBRARY=\$PYTHON_LIBRARY\" /opt/python/\${PYTHON_TAG}/bin/python -m build && \
+            /opt/python/\${PYTHON_TAG}/bin/pip install auditwheel && \
+            /opt/python/\${PYTHON_TAG}/bin/auditwheel repair dist/*.whl -w dist
+          "
 
-    - name: Install PCL with VTK using Vcpkg
-      shell: bash
-      run: |
-        if [[ "${{ runner.os }}" == "Linux" ]]; then
-          ./vcpkg/vcpkg update
-          ./vcpkg/vcpkg install pcl[vtk]:x64-linux
-        elif [[ "${{ runner.os }}" == "macOS" ]]; then
-          ./vcpkg/vcpkg update
-          ./vcpkg/vcpkg install pcl[vtk]:x64-osx
-        elif [[ "${{ runner.os }}" == "Windows" ]]; then
-          C:\\vcpkg\\vcpkg.exe install pcl[vtk]:x64-windows
-        fi
+      - name: Build wheel (Windows and macOS)
+        if: matrix.os != 'ubuntu-latest'
+        run: |
+          python -m build
 
-    - name: Build the package
-      env:
-        VCPKG_TOOLCHAIN_FILE: ${{ env.VCPKG_TOOLCHAIN_FILE }}
-      shell: bash
-      run: |
-        pip install .
-      continue-on-error: true
-
-    - name: Upload Configuration Log
-      if: failure()
-      uses: actions/upload-artifact@v4.6.2
-      with:
-        name: configuration-logs
-        path: |
-          ./vcpkg/buildtrees/vtk/config-x64-linux-dbg-CMakeCache.txt.log
-          ./vcpkg/buildtrees/vtk/config-x64-linux-dbg-CMakeFiles/*.log
+      - name: Upload Wheels
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.python-version }}
+          path: dist/*.whl
 
   publish:
-    name: Publish to PyPI
-    runs-on: ubuntu-latest
+    name: Publish Wheels
     needs: build
-
+    runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4.2.2
+      - name: Checkout code
+        uses: actions/checkout@v4.2.2
 
-    - name: Setup Python
-      uses: actions/setup-python@v5.6.0
-      with:
-        python-version: 3.11
+      - name: Setup Python
+        uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip setuptools wheel twine
+      - name: Install twine
+        run: |
+          python -m pip install --upgrade pip twine
 
-    - name: Build and publish package
-      env:
-        TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
-        TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
-      run: |
-        python setup.py sdist bdist_wheel
-        twine upload dist/*
+      - name: Download Wheels
+        uses: actions/download-artifact@v4.3.0
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+
+#      - name: Publish Wheels
+#        env:
+#          TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
+#          TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+#        run: |
+#          python -m twine upload --skip-existing dist/*.whl
+
